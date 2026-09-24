@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goto Links</title>
+    <style>
+        :root {
+            --bg: #f9fafb;
+            --surface: #ffffff;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-muted: #6b7280;
+            --primary: #2563eb;
+            --danger: #dc2626;
+            --success: #16a34a;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem 1rem;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        .user-nav {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+        }
+        .form-row {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        input[type="text"], input[type="url"] {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.875rem;
+            flex: 1;
+            min-width: 200px;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-danger {
+            background: #fee2e2;
+            color: var(--danger);
+            border-color: #fecaca;
+        }
+        .btn-secondary {
+            background: #f3f4f6;
+            color: var(--text);
+            border-color: var(--border);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: #f9fafb;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .link-slug {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-weight: 600;
+        }
+        .link-target {
+            max-width: 320px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .alert {
+            padding: 0.75rem 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+        }
+        .alert-error {
+            background: #fef2f2;
+            color: var(--danger);
+            border: 1px solid #fecaca;
+        }
+        .alert-success {
+            background: #f0fdf4;
+            color: var(--success);
+            border: 1px solid #bbf7d0;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Goto Links</h1>
+            {{if .UserEmail}}
+            <div class="user-nav">
+                <span>{{.UserEmail}}</span>
+                <form action="/auth/logout" method="POST" style="margin: 0;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn-secondary">Log out</button>
+                </form>
+            </div>
+            {{end}}
+        </header>
+
+        {{if .ErrorMessage}}
+        <div class="alert alert-error" role="alert">
+            {{.ErrorMessage}}
+        </div>
+        {{end}}
+
+        {{if .SuccessMessage}}
+        <div class="alert alert-success" role="status">
+            {{.SuccessMessage}}
+        </div>
+        {{end}}
+
+        <div class="card">
+            <h2>Create New Short Link</h2>
+            <form action="/admin/links" method="POST" class="form-row">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="text" name="slug" placeholder="Slug (e.g. wiki, pr, team)" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, underscores, and hyphens" value="{{.FormSlug}}">
+                <input type="text" name="target" placeholder="Target URL (https://...)" required value="{{.FormTarget}}">
+                <button type="submit" class="btn-primary">Create Link</button>
+            </form>
+        </div>
+
+        <div class="card" style="padding: 0; overflow: hidden;">
+            {{if .Links}}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Short Link</th>
+                        <th>Target Destination</th>
+                        <th>Created</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Links}}
+                    <tr>
+                        <td class="link-slug">
+                            <a href="/{{.Slug}}" target="_blank">/{{.Slug}}</a>
+                        </td>
+                        <td class="link-target">
+                            <a href="{{.Target}}" target="_blank" rel="noopener noreferrer">{{.Target}}</a>
+                        </td>
+                        <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                        <td style="text-align: right;">
+                            <div class="actions" style="justify-content: flex-end;">
+                                <form action="/admin/links/edit" method="POST" style="display: inline-flex; gap: 0.25rem;">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="slug" value="{{.Slug}}">
+                                    <input type="text" name="target" value="{{.Target}}" required style="min-width: 160px; padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                                    <button type="submit" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Save</button>
+                                </form>
+                                <form action="/admin/links/delete" method="POST" style="display: inline;" onsubmit="return confirm('Delete short link /{{.Slug}}?');">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="slug" value="{{.Slug}}">
+                                    <button type="submit" class="btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <div class="empty-state">
+                <p>No short links created yet.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</body>
+</html>
