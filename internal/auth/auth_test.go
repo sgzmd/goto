@@ -259,7 +259,7 @@ func TestAuthSecurityAndFlow(t *testing.T) {
 	t.Run("Callback rejects mismatched state", func(t *testing.T) {
 		// Valid state in cookie
 		encryptor, _ := NewEncryptor(sessionSecret)
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "nonce-1",
 			CodeVerifier: "verifier-1",
@@ -280,7 +280,7 @@ func TestAuthSecurityAndFlow(t *testing.T) {
 
 	t.Run("Callback rejects expired state", func(t *testing.T) {
 		encryptor, _ := NewEncryptor(sessionSecret)
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "nonce-1",
 			CodeVerifier: "verifier-1",

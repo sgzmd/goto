@@ -46,7 +46,7 @@ func TestAuthSecurityAdversarialChallenge(t *testing.T) {
 			RedirectURI: cfg.BaseURL + "/auth/callback",
 		})
 
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "original-nonce",
 			CodeVerifier: "v-1",
@@ -76,7 +76,7 @@ func TestAuthSecurityAdversarialChallenge(t *testing.T) {
 			RedirectURI: cfg.BaseURL + "/auth/callback",
 		})
 
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "nonce-1",
 			CodeVerifier: "v-1",
@@ -108,7 +108,7 @@ func TestAuthSecurityAdversarialChallenge(t *testing.T) {
 			RedirectURI: cfg.BaseURL + "/auth/callback",
 		})
 
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "nonce-1",
 			CodeVerifier: "v-1",
@@ -139,7 +139,7 @@ func TestAuthSecurityAdversarialChallenge(t *testing.T) {
 			RedirectURI: cfg.BaseURL + "/auth/callback",
 		})
 
-		cookieVal, _ := encryptor.EncryptJSON(OAuthFlowState{
+		cookieVal, _ := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
 			State:        "state-1",
 			Nonce:        "nonce-1",
 			CodeVerifier: "v-1",
@@ -163,6 +163,36 @@ func TestAuthSecurityAdversarialChallenge(t *testing.T) {
 		auth.HandleCallback(rec2, req2)
 		if rec2.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 on replayed code, got %d", rec2.Code)
+		}
+	})
+
+	t.Run("Challenge: Cookie Type Confusion / OAuth Flow Token As Session Cookie", func(t *testing.T) {
+		// An unauthenticated user generates a valid OAuth flow token
+		flowToken, err := encryptor.EncryptJSON(domainOAuthFlow, OAuthFlowState{
+			State:        "state-xyz",
+			Nonce:        "nonce-xyz",
+			CodeVerifier: "code-verifier-xyz",
+			ReturnTo:     "/admin",
+			ExpiresAt:    time.Now().Add(5 * time.Minute).Unix(),
+		})
+		if err != nil {
+			t.Fatalf("failed to create flow token: %v", err)
+		}
+
+		// Attacker attempts to pass this flow token as a session cookie
+		req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: flowToken})
+		rec := httptest.NewRecorder()
+
+		handler := auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		handler.ServeHTTP(rec, req)
+
+		// Must be rejected as unauthenticated (redirect to login 302, NOT 200 OK)
+		if rec.Code != http.StatusFound {
+			t.Fatalf("expected 302 redirect to login on type confusion attack, got %d", rec.Code)
 		}
 	})
 }

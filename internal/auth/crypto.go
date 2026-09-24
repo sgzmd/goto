@@ -27,7 +27,6 @@ func NewEncryptor(secret []byte) (*Encryptor, error) {
 		return nil, errors.New("secret key cannot be empty")
 	}
 
-	// Derive a 32-byte key using SHA-256 to ensure exactly 32 bytes for AES-256
 	key := sha256.Sum256(secret)
 
 	block, err := aes.NewCipher(key[:])
@@ -43,7 +42,7 @@ func NewEncryptor(secret []byte) (*Encryptor, error) {
 	return &Encryptor{aead: aead}, nil
 }
 
-func (e *Encryptor) EncryptJSON(v any) (string, error) {
+func (e *Encryptor) EncryptJSON(domain string, v any) (string, error) {
 	plaintext, err := json.Marshal(v)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal json: %w", err)
@@ -54,12 +53,12 @@ func (e *Encryptor) EncryptJSON(v any) (string, error) {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Seal appends ciphertext and authentication tag to nonce
-	sealed := e.aead.Seal(nonce, nonce, plaintext, nil)
+	// Seal appends ciphertext and authentication tag to nonce, bound to domain AAD
+	sealed := e.aead.Seal(nonce, nonce, plaintext, []byte(domain))
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-func (e *Encryptor) DecryptJSON(token string, dest any) error {
+func (e *Encryptor) DecryptJSON(domain string, token string, dest any) error {
 	data, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		return fmt.Errorf("%w: invalid base64 encoding", ErrInvalidCiphertext)
@@ -71,7 +70,7 @@ func (e *Encryptor) DecryptJSON(token string, dest any) error {
 	}
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := e.aead.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := e.aead.Open(nil, nonce, ciphertext, []byte(domain))
 	if err != nil {
 		return fmt.Errorf("%w: decryption or authentication failed", ErrInvalidCiphertext)
 	}

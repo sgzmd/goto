@@ -178,7 +178,7 @@
             <h2>Create New Short Link</h2>
             <form action="/admin/links" method="POST" class="form-row">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                <input type="text" name="slug" placeholder="Slug (e.g. wiki, pr, team)" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, underscores, and hyphens" value="{{.FormSlug}}">
+                <input type="text" name="slug" placeholder="Slug (e.g. wiki, pr, team)" required pattern="[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?" title="Letters and numbers; dashes and underscores allowed in the middle" value="{{.FormSlug}}">
                 <input type="text" name="target" placeholder="Target URL (https://...)" required value="{{.FormTarget}}">
                 <button type="submit" class="btn-primary">Create Link</button>
             </form>

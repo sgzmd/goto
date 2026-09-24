@@ -22,6 +22,9 @@ const (
 	CSRFTokenContextKey contextKey = "csrf_token"
 	SessionCookieName              = "goto_session"
 	OAuthCookieName                = "goto_oidc_flow"
+
+	domainOAuthFlow = "goto_oauth_flow"
+	domainSession   = "goto_session"
 )
 
 type Config struct {
@@ -140,7 +143,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:    time.Now().Add(5 * time.Minute).Unix(),
 	}
 
-	encryptedFlow, err := a.encryptor.EncryptJSON(flow)
+	encryptedFlow, err := a.encryptor.EncryptJSON(domainOAuthFlow, flow)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -172,6 +175,12 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if idpErr := r.URL.Query().Get("error"); idpErr != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		http.Error(w, fmt.Sprintf("Authentication failed: %s (%s)", idpErr, errDesc), http.StatusBadRequest)
+		return
+	}
+
 	cookie, err := r.Cookie(OAuthCookieName)
 	if err != nil {
 		http.Error(w, "Missing OAuth state cookie", http.StatusBadRequest)
@@ -190,7 +199,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	var flow OAuthFlowState
-	if err := a.encryptor.DecryptJSON(cookie.Value, &flow); err != nil {
+	if err := a.encryptor.DecryptJSON(domainOAuthFlow, cookie.Value, &flow); err != nil {
 		http.Error(w, "Invalid or tampered OAuth state", http.StatusBadRequest)
 		return
 	}
@@ -266,7 +275,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
 	}
 
-	encryptedSession, err := a.encryptor.EncryptJSON(session)
+	encryptedSession, err := a.encryptor.EncryptJSON(domainSession, session)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -313,7 +322,12 @@ func (a *Authenticator) RequireAuth(next http.Handler) http.Handler {
 		}
 
 		var session Session
-		if err := a.encryptor.DecryptJSON(cookie.Value, &session); err != nil {
+		if err := a.encryptor.DecryptJSON(domainSession, cookie.Value, &session); err != nil {
+			a.unauthenticated(w, r)
+			return
+		}
+
+		if session.UserID == "" || session.Email == "" || session.CSRFToken == "" {
 			a.unauthenticated(w, r)
 			return
 		}
@@ -332,13 +346,17 @@ func (a *Authenticator) RequireAuth(next http.Handler) http.Handler {
 func (a *Authenticator) VerifyCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete || r.Method == http.MethodPatch {
+			// Limit body reading to 64KB before parsing form
+			r.Body = http.MaxBytesReader(w, r.Body, 1024*64)
+
 			sessionCSRF, _ := r.Context().Value(CSRFTokenContextKey).(string)
 			if sessionCSRF == "" {
 				http.Error(w, "CSRF validation failed: no session CSRF token", http.StatusForbidden)
 				return
 			}
 
-			requestCSRF := r.FormValue("csrf_token")
+			// Do not accept CSRF tokens from URL query parameters (PostFormValue only)
+			requestCSRF := r.PostFormValue("csrf_token")
 			if requestCSRF == "" {
 				requestCSRF = r.Header.Get("X-CSRF-Token")
 			}
@@ -373,6 +391,10 @@ func SafeReturnURL(raw string, defaultURL string) string {
 		return defaultURL
 	}
 	if !strings.HasPrefix(raw, "/") {
+		return defaultURL
+	}
+	// Avoid redirect loop back to login or callback
+	if strings.HasPrefix(raw, "/auth/login") || strings.HasPrefix(raw, "/auth/callback") {
 		return defaultURL
 	}
 	return raw

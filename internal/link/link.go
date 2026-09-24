@@ -71,7 +71,7 @@ func ValidateTargetURL(raw string) (string, error) {
 		return "", fmt.Errorf("%w: target URL exceeds maximum length of 2048 characters", ErrInvalidInput)
 	}
 
-	u, err := url.ParseRequestURI(trimmed)
+	u, err := url.Parse(trimmed)
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid target URL format: %v", ErrInvalidInput, err)
 	}

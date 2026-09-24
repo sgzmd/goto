@@ -36,7 +36,7 @@ func NewAdminHandler(store link.Store) *AdminHandler {
 }
 
 func (h *AdminHandler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -51,6 +51,8 @@ func (h *AdminHandler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 		Links:          links,
 		ErrorMessage:   r.URL.Query().Get("error"),
 		SuccessMessage: r.URL.Query().Get("success"),
+		FormSlug:       r.URL.Query().Get("form_slug"),
+		FormTarget:     r.URL.Query().Get("form_target"),
 	}
 
 	// Session/CSRF context will populate these if auth middleware is present
@@ -84,13 +86,17 @@ func (h *AdminHandler) HandleCreateLink(w http.ResponseWriter, r *http.Request) 
 
 	cleanSlug, err := link.ValidateSlug(rawSlug)
 	if err != nil {
-		http.Redirect(w, r, "/admin?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		errURL := fmt.Sprintf("/admin?error=%s&form_slug=%s&form_target=%s",
+			url.QueryEscape(err.Error()), url.QueryEscape(rawSlug), url.QueryEscape(rawTarget))
+		http.Redirect(w, r, errURL, http.StatusSeeOther)
 		return
 	}
 
 	cleanTarget, err := link.ValidateTargetURL(rawTarget)
 	if err != nil {
-		http.Redirect(w, r, "/admin?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		errURL := fmt.Sprintf("/admin?error=%s&form_slug=%s&form_target=%s",
+			url.QueryEscape(err.Error()), url.QueryEscape(rawSlug), url.QueryEscape(rawTarget))
+		http.Redirect(w, r, errURL, http.StatusSeeOther)
 		return
 	}
 
@@ -100,7 +106,10 @@ func (h *AdminHandler) HandleCreateLink(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		if errors.Is(err, link.ErrConflict) {
-			http.Redirect(w, r, "/admin?error="+url.QueryEscape(fmt.Sprintf("Slug %q already exists", cleanSlug)), http.StatusSeeOther)
+			errURL := fmt.Sprintf("/admin?error=%s&form_slug=%s&form_target=%s",
+				url.QueryEscape(fmt.Sprintf("Slug %q already exists", cleanSlug)),
+				url.QueryEscape(rawSlug), url.QueryEscape(rawTarget))
+			http.Redirect(w, r, errURL, http.StatusSeeOther)
 			return
 		}
 		http.Redirect(w, r, "/admin?error="+url.QueryEscape("Failed to save link"), http.StatusSeeOther)

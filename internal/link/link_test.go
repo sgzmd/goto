@@ -65,6 +65,7 @@ func TestValidateTargetURL(t *testing.T) {
 		errTarget error
 	}{
 		{name: "valid https", input: "https://example.com/some/path", want: "https://example.com/some/path"},
+		{name: "valid https with fragment without query", input: "https://en.wikipedia.org/wiki/Go#Syntax", want: "https://en.wikipedia.org/wiki/Go#Syntax"},
 		{name: "valid http with query", input: "http://example.com:8080/search?q=hello#frag", want: "http://example.com:8080/search?q=hello#frag"},
 		{name: "valid uppercase scheme normalized", input: "HTTPS://Example.com/Path", want: "https://Example.com/Path"},
 		{name: "empty string", input: "", wantErr: true, errTarget: ErrInvalidInput},

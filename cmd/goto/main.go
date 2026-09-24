@@ -70,7 +70,7 @@ func loadConfig() (*Config, error) {
 		return nil, errors.New("SESSION_SECRET must be at least 32 characters long")
 	}
 
-	secureCookies := false
+	secureCookies := strings.HasPrefix(strings.ToLower(baseURL), "https://")
 	if val := os.Getenv("SECURE_COOKIES"); val != "" {
 		b, err := strconv.ParseBool(val)
 		if err != nil {

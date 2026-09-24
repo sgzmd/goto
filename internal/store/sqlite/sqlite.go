@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ func Open(dsn string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
+
+	db.SetMaxOpenConns(max(4, runtime.NumCPU()))
+	db.SetMaxIdleConns(max(2, runtime.NumCPU()))
 
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {
