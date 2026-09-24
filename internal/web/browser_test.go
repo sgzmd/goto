@@ -11,22 +11,13 @@ import (
 
 func TestBrowserUIFlow(t *testing.T) {
 	st := memory.New()
-	admin := NewAdminHandler(st)
-	resolver := NewResolver(st)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", HandleHealthz)
-	mux.HandleFunc("GET /admin", admin.HandleDashboard)
-	mux.HandleFunc("POST /admin/links", admin.HandleCreateLink)
-	mux.HandleFunc("POST /admin/links/edit", admin.HandleEditLink)
-	mux.HandleFunc("POST /admin/links/delete", admin.HandleDeleteLink)
-	mux.HandleFunc("GET /{slug}", resolver.HandleResolve)
+	handler := NewRouter(st, nil)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:8989")
 	if err != nil {
 		t.Fatalf("failed to listen on port 8989: %v", err)
 	}
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: handler}
 	go func() {
 		_ = server.Serve(listener)
 	}()

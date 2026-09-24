@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"goto/internal/auth"
 	"goto/internal/link"
 )
 
@@ -53,10 +54,10 @@ func (h *AdminHandler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Session/CSRF context will populate these if auth middleware is present
-	if email, ok := r.Context().Value(UserEmailContextKey).(string); ok {
+	if email, ok := r.Context().Value(auth.UserEmailContextKey).(string); ok {
 		data.UserEmail = email
 	}
-	if csrf, ok := r.Context().Value(CSRFTokenContextKey).(string); ok {
+	if csrf, ok := r.Context().Value(auth.CSRFTokenContextKey).(string); ok {
 		data.CSRFToken = csrf
 	}
 
