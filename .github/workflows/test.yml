@@ -38,6 +38,11 @@ jobs:
       - name: Go Vet
         run: go vet ./...
 
+      - name: Verify Chrome Availability
+        run: |
+          which google-chrome || which chromium-browser || which chromium
+          google-chrome --version || chromium-browser --version || chromium --version
+
       - name: Run Tests (with Race Detector)
         run: go test -v -race ./...
 

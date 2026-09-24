@@ -18,35 +18,60 @@ function findChrome() {
 }
 
 // Launch chrome
+const PORT = 9223;
 const chromeProfile = `/tmp/chrome-goto-stage3-${Date.now()}`;
+let chromeStderr = '';
 const chrome = spawn(findChrome(), [
   '--headless',
   '--disable-gpu',
   '--no-sandbox',
-  '--remote-debugging-port=9223',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--remote-debugging-address=127.0.0.1',
+  `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${chromeProfile}`,
   'about:blank'
-], { stdio: 'ignore' });
+], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+if (chrome.stderr) {
+  chrome.stderr.on('data', chunk => {
+    chromeStderr += chunk.toString();
+  });
+}
 
 async function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
 async function getCDP() {
-  for (let i = 0; i < 20; i++) {
+  let lastErr = null;
+  for (let i = 0; i < 50; i++) {
     try {
-      const res = await fetch('http://127.0.0.1:9223/json/list');
+      const res = await fetch(`http://127.0.0.1:${PORT}/json/list`);
       if (res.ok) {
         const data = await res.json();
         const page = data.find(t => t.type === 'page');
         if (page && page.webSocketDebuggerUrl) {
           return page.webSocketDebuggerUrl;
         }
+        try {
+          const newRes = await fetch(`http://127.0.0.1:${PORT}/json/new`, { method: 'PUT' });
+          if (newRes.ok) {
+            const newTarget = await newRes.json();
+            if (newTarget && newTarget.webSocketDebuggerUrl) {
+              return newTarget.webSocketDebuggerUrl;
+            }
+          }
+        } catch (_) {}
       }
-    } catch (e) {}
+    } catch (e) {
+      lastErr = e;
+    }
     await sleep(200);
   }
-  throw new Error('Chrome CDP page target did not become ready');
+  throw new Error(`Chrome CDP page target did not become ready (last error: ${lastErr ? lastErr.message : 'none'}, stderr: ${chromeStderr})`);
 }
 
 class CDPClient {
@@ -174,12 +199,14 @@ async function run() {
     cdp.close();
     console.log('STAGE 3 BROWSER VERIFICATION SUCCESSFUL!');
   } finally {
-    chrome.kill('SIGKILL');
+    try { chrome.kill('SIGKILL'); } catch (_) {}
+    try { fs.rmSync(chromeProfile, { recursive: true, force: true }); } catch (_) {}
   }
 }
 
 run().catch(err => {
   console.error('Test failed:', err);
-  chrome.kill('SIGKILL');
+  try { chrome.kill('SIGKILL'); } catch (_) {}
+  try { fs.rmSync(chromeProfile, { recursive: true, force: true }); } catch (_) {}
   process.exit(1);
 });
