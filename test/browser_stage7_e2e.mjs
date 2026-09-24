@@ -1,10 +1,26 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
+function findChrome() {
+  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
+  const candidates = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'google-chrome';
+}
+
 const chromeProfile = `/tmp/chrome-goto-stage7-${Date.now()}`;
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+const chrome = spawn(findChrome(), [
   '--headless',
   '--disable-gpu',
+  '--no-sandbox',
   '--remote-debugging-port=9225',
   `--user-data-dir=${chromeProfile}`,
   'about:blank'
@@ -201,7 +217,10 @@ async function run() {
     }
 
     // Capture screenshot before logout
-    const artifactDir = '/Users/sgzmd/.gemini/antigravity/brain/b0d34f3b-e7f1-460c-8aa2-fa1c04f8edf7';
+    let artifactDir = '/Users/sgzmd/.gemini/antigravity/brain/b0d34f3b-e7f1-460c-8aa2-fa1c04f8edf7';
+    if (!fs.existsSync(artifactDir)) {
+      artifactDir = process.env.ARTIFACT_DIR || '/tmp';
+    }
     await cdp.screenshot(`${artifactDir}/e2e_acceptance_screenshot.png`);
     console.log(`Saved screenshot artifact to ${artifactDir}/e2e_acceptance_screenshot.png`);
 

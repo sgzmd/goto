@@ -2,11 +2,27 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 
+function findChrome() {
+  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
+  const candidates = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'google-chrome';
+}
+
 // Launch chrome
 const chromeProfile = `/tmp/chrome-goto-stage3-${Date.now()}`;
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+const chrome = spawn(findChrome(), [
   '--headless',
   '--disable-gpu',
+  '--no-sandbox',
   '--remote-debugging-port=9223',
   `--user-data-dir=${chromeProfile}`,
   'about:blank'
