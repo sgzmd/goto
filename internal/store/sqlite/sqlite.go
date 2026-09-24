@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ type Store struct {
 }
 
 func Open(dsn string) (*Store, error) {
+	slog.Info("Opening SQLite database", "dsn", dsn)
+
 	// Enable WAL mode and busy timeout via DSN query params or pragmas if not present
 	separator := "?"
 	if strings.Contains(dsn, "?") {
@@ -30,24 +33,30 @@ func Open(dsn string) (*Store, error) {
 
 	db, err := sql.Open("sqlite", fullDSN)
 	if err != nil {
+		slog.Error("Failed to open SQLite database", "error", err)
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
 	// Ping database to establish connection and verify DSN
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
+		slog.Error("Failed to ping SQLite database", "error", err)
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 
-	db.SetMaxOpenConns(max(4, runtime.NumCPU()))
-	db.SetMaxIdleConns(max(2, runtime.NumCPU()))
+	maxOpen := max(4, runtime.NumCPU())
+	maxIdle := max(2, runtime.NumCPU())
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {
 		_ = db.Close()
+		slog.Error("Failed to initialize SQLite schema", "error", err)
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	slog.Info("SQLite database initialized successfully", "max_open_conns", maxOpen, "max_idle_conns", maxIdle)
 	return s, nil
 }
 
@@ -65,6 +74,7 @@ func (s *Store) initSchema() error {
 }
 
 func (s *Store) Close() error {
+	slog.Info("Closing SQLite database")
 	return s.db.Close()
 }
 

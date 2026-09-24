@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,6 +98,8 @@ func New(ctx context.Context, cfg Config) (*Authenticator, error) {
 		ClientID: cfg.ClientID,
 	})
 
+	slog.Info("Initialized OIDC authenticator", "issuer", cfg.IssuerURL, "client_id", cfg.ClientID, "redirect_url", redirectURL)
+
 	return &Authenticator{
 		provider:      provider,
 		verifier:      verifier,
@@ -114,12 +117,14 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	state, err := GenerateSecureRandomString(32)
 	if err != nil {
+		slog.Error("Failed to generate random state for OIDC login", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	nonce, err := GenerateSecureRandomString(32)
 	if err != nil {
+		slog.Error("Failed to generate random nonce for OIDC login", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -127,6 +132,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// PKCE: Generate code_verifier and code_challenge (S256)
 	codeVerifier, err := GenerateSecureRandomString(32)
 	if err != nil {
+		slog.Error("Failed to generate PKCE code verifier", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -145,6 +151,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	encryptedFlow, err := a.encryptor.EncryptJSON(domainOAuthFlow, flow)
 	if err != nil {
+		slog.Error("Failed to encrypt OAuth flow state", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -166,6 +173,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 
+	slog.Info("OIDC login flow initiated", "return_to", returnTo, "remote_addr", r.RemoteAddr)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -177,12 +185,14 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	if idpErr := r.URL.Query().Get("error"); idpErr != "" {
 		errDesc := r.URL.Query().Get("error_description")
+		slog.Warn("OIDC callback returned error from IdP", "idp_error", idpErr, "description", errDesc, "remote_addr", r.RemoteAddr)
 		http.Error(w, fmt.Sprintf("Authentication failed: %s (%s)", idpErr, errDesc), http.StatusBadRequest)
 		return
 	}
 
 	cookie, err := r.Cookie(OAuthCookieName)
 	if err != nil {
+		slog.Warn("OIDC callback missing OAuth state cookie", "remote_addr", r.RemoteAddr)
 		http.Error(w, "Missing OAuth state cookie", http.StatusBadRequest)
 		return
 	}
@@ -200,23 +210,27 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	var flow OAuthFlowState
 	if err := a.encryptor.DecryptJSON(domainOAuthFlow, cookie.Value, &flow); err != nil {
+		slog.Warn("OIDC callback invalid state cookie", "error", err, "remote_addr", r.RemoteAddr)
 		http.Error(w, "Invalid or tampered OAuth state", http.StatusBadRequest)
 		return
 	}
 
 	if time.Now().Unix() > flow.ExpiresAt {
+		slog.Warn("OIDC callback flow state expired", "remote_addr", r.RemoteAddr)
 		http.Error(w, "OAuth flow has expired", http.StatusBadRequest)
 		return
 	}
 
 	stateParam := r.URL.Query().Get("state")
 	if !ConstantTimeCompare(flow.State, stateParam) {
+		slog.Warn("OIDC callback state mismatch", "remote_addr", r.RemoteAddr)
 		http.Error(w, "OAuth state mismatch", http.StatusBadRequest)
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
+		slog.Warn("OIDC callback missing authorization code", "remote_addr", r.RemoteAddr)
 		http.Error(w, "Missing authorization code", http.StatusBadRequest)
 		return
 	}
@@ -227,23 +241,27 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		oauth2.SetAuthURLParam("code_verifier", flow.CodeVerifier),
 	)
 	if err != nil {
+		slog.Error("OIDC token exchange failed", "error", err, "remote_addr", r.RemoteAddr)
 		http.Error(w, "Failed to exchange authorization code", http.StatusBadRequest)
 		return
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
+		slog.Error("OIDC response missing id_token", "remote_addr", r.RemoteAddr)
 		http.Error(w, "Missing id_token in token response", http.StatusBadRequest)
 		return
 	}
 
 	idToken, err := a.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
+		slog.Warn("OIDC id_token verification failed", "error", err, "remote_addr", r.RemoteAddr)
 		http.Error(w, "ID token verification failed", http.StatusBadRequest)
 		return
 	}
 
 	if idToken.Nonce != flow.Nonce {
+		slog.Warn("OIDC nonce verification mismatch", "remote_addr", r.RemoteAddr)
 		http.Error(w, "Nonce verification failed", http.StatusBadRequest)
 		return
 	}
@@ -253,12 +271,14 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		Email   string `json:"email"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
+		slog.Error("OIDC token claims parse failed", "error", err, "remote_addr", r.RemoteAddr)
 		http.Error(w, "Failed to parse token claims", http.StatusInternalServerError)
 		return
 	}
 
 	csrfToken, err := GenerateSecureRandomString(32)
 	if err != nil {
+		slog.Error("Failed to generate CSRF token", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -277,6 +297,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	encryptedSession, err := a.encryptor.EncryptJSON(domainSession, session)
 	if err != nil {
+		slog.Error("Failed to encrypt session", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -291,6 +312,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	slog.Info("OIDC authentication successful", "user", userEmail, "subject", claims.Subject, "return_to", flow.ReturnTo, "remote_addr", r.RemoteAddr)
 	http.Redirect(w, r, flow.ReturnTo, http.StatusFound)
 }
 
@@ -310,6 +332,7 @@ func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	slog.Info("User logged out", "remote_addr", r.RemoteAddr)
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
@@ -317,22 +340,26 @@ func (a *Authenticator) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(SessionCookieName)
 		if err != nil {
+			slog.Debug("Protected endpoint access without session cookie", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 			a.unauthenticated(w, r)
 			return
 		}
 
 		var session Session
 		if err := a.encryptor.DecryptJSON(domainSession, cookie.Value, &session); err != nil {
+			slog.Warn("Session decryption failed", "error", err, "remote_addr", r.RemoteAddr)
 			a.unauthenticated(w, r)
 			return
 		}
 
 		if session.UserID == "" || session.Email == "" || session.CSRFToken == "" {
+			slog.Warn("Session missing required fields", "remote_addr", r.RemoteAddr)
 			a.unauthenticated(w, r)
 			return
 		}
 
 		if time.Now().Unix() > session.ExpiresAt {
+			slog.Info("Session expired", "user", session.Email, "remote_addr", r.RemoteAddr)
 			a.unauthenticated(w, r)
 			return
 		}
@@ -351,6 +378,7 @@ func (a *Authenticator) VerifyCSRF(next http.Handler) http.Handler {
 
 			sessionCSRF, _ := r.Context().Value(CSRFTokenContextKey).(string)
 			if sessionCSRF == "" {
+				slog.Warn("CSRF validation failed: no session CSRF token in context", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 				http.Error(w, "CSRF validation failed: no session CSRF token", http.StatusForbidden)
 				return
 			}
@@ -362,6 +390,7 @@ func (a *Authenticator) VerifyCSRF(next http.Handler) http.Handler {
 			}
 
 			if !ConstantTimeCompare(sessionCSRF, requestCSRF) {
+				slog.Warn("CSRF validation failed: token mismatch", "path", r.URL.Path, "method", r.Method, "remote_addr", r.RemoteAddr)
 				http.Error(w, "CSRF validation failed: token mismatch", http.StatusForbidden)
 				return
 			}
@@ -371,6 +400,7 @@ func (a *Authenticator) VerifyCSRF(next http.Handler) http.Handler {
 }
 
 func (a *Authenticator) unauthenticated(w http.ResponseWriter, r *http.Request) {
+	slog.Debug("Redirecting unauthenticated request to login", "path", r.URL.Path, "method", r.Method, "remote_addr", r.RemoteAddr)
 	if r.Method == http.MethodGet {
 		loginURL := "/auth/login?return_to=" + url.QueryEscape(r.URL.RequestURI())
 		http.Redirect(w, r, loginURL, http.StatusFound)

@@ -29,6 +29,35 @@ type Config struct {
 	OIDCClientSecret string
 	SessionSecret    string
 	SecureCookies    bool
+	LogLevel         string
+	LogFormat        string
+}
+
+func setupLogger() {
+	var level slog.Level
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+
+	var handler slog.Handler
+	if strings.ToLower(os.Getenv("LOG_FORMAT")) == "json" {
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	}
+
+	slog.SetDefault(slog.New(handler))
 }
 
 func loadConfig() (*Config, error) {
@@ -79,6 +108,15 @@ func loadConfig() (*Config, error) {
 		secureCookies = b
 	}
 
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	logFormat := os.Getenv("LOG_FORMAT")
+	if logFormat == "" {
+		logFormat = "text"
+	}
+
 	return &Config{
 		Port:             port,
 		BaseURL:          baseURL,
@@ -88,10 +126,14 @@ func loadConfig() (*Config, error) {
 		OIDCClientSecret: clientSecret,
 		SessionSecret:    sessionSecret,
 		SecureCookies:    secureCookies,
+		LogLevel:         logLevel,
+		LogFormat:        logFormat,
 	}, nil
 }
 
 func main() {
+	setupLogger()
+
 	cfg, err := loadConfig()
 	if err != nil {
 		slog.Error("Configuration error", "error", err)
@@ -105,6 +147,8 @@ func main() {
 		"oidc_issuer", cfg.OIDCIssuerURL,
 		"oidc_client_id", cfg.OIDCClientID,
 		"secure_cookies", cfg.SecureCookies,
+		"log_level", cfg.LogLevel,
+		"log_format", cfg.LogFormat,
 	)
 
 	// Ensure parent directory for SQLite DB exists

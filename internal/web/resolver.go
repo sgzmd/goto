@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"goto/internal/link"
@@ -17,6 +18,7 @@ func NewResolver(store link.Store) *Resolver {
 
 func (h *Resolver) HandleResolve(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		slog.Warn("Method not allowed on resolve endpoint", "method", r.Method, "remote_addr", r.RemoteAddr)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -24,6 +26,7 @@ func (h *Resolver) HandleResolve(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	cleanSlug, err := link.ValidateSlug(slug)
 	if err != nil {
+		slog.Warn("Invalid slug format requested", "slug", slug, "error", err, "remote_addr", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
 	}
@@ -31,13 +34,16 @@ func (h *Resolver) HandleResolve(w http.ResponseWriter, r *http.Request) {
 	l, err := h.store.Get(r.Context(), cleanSlug)
 	if err != nil {
 		if errors.Is(err, link.ErrNotFound) {
+			slog.Info("Short link not found", "slug", cleanSlug, "remote_addr", r.RemoteAddr)
 			http.NotFound(w, r)
 			return
 		}
+		slog.Error("Database error during link resolution", "slug", cleanSlug, "error", err, "remote_addr", r.RemoteAddr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	slog.Info("Short link resolved", "slug", cleanSlug, "target", l.Target, "remote_addr", r.RemoteAddr)
 	http.Redirect(w, r, l.Target, http.StatusFound)
 }
 

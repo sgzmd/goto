@@ -131,3 +131,13 @@ docker --context max run -d \
 SQLite database file is persisted at `/data/goto.db`.
 Container runs as non-root user `10001:10001`.
 Health check endpoint: `GET /healthz`.
+
+## Logging
+
+All logs are emitted using Go's standard library `log/slog` to `stderr`.
+
+- `LOG_LEVEL`: Minimum log level (`debug`, `info`, `warn`, `error`). Defaults to `info`. Health check (`/healthz`) requests are logged at `debug` level to avoid probe noise.
+- `LOG_FORMAT`: Format of log output (`text` or `json`). Defaults to `text`. Set `LOG_FORMAT=json` for JSON-formatted structured logs in production.
+
+All log entries include structured attributes such as `method`, `path`, `status`, `duration_ms`, `bytes`, `remote_addr`, and authenticated `user`.
+

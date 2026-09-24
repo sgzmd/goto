@@ -1,7 +1,9 @@
 package web
 
 import (
+	"log/slog"
 	"net/http"
+	"time"
 
 	"goto/internal/auth"
 	"goto/internal/link"
@@ -44,7 +46,65 @@ func NewRouter(store link.Store, authHandler *auth.Authenticator) http.Handler {
 	// Short link resolver
 	mux.HandleFunc("GET /{slug}", resolver.HandleResolve)
 
-	return securityHeaders(mux)
+	return loggingMiddleware(securityHeaders(mux))
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int64
+}
+
+func (r *statusRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.bytesWritten += int64(n)
+	return n, err
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+
+		next.ServeHTTP(rec, r)
+
+		duration := time.Since(start)
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.statusCode,
+			"duration_ms", duration.Milliseconds(),
+			"bytes", rec.bytesWritten,
+			"remote_addr", r.RemoteAddr,
+		}
+
+		if email, ok := r.Context().Value(auth.UserEmailContextKey).(string); ok && email != "" {
+			attrs = append(attrs, "user", email)
+		}
+
+		msg := "HTTP request completed"
+		if r.URL.Path == "/healthz" {
+			slog.Debug(msg, attrs...)
+		} else if rec.statusCode >= 500 {
+			slog.Error(msg, attrs...)
+		} else if rec.statusCode >= 400 {
+			slog.Warn(msg, attrs...)
+		} else {
+			slog.Info(msg, attrs...)
+		}
+	})
 }
 
 func securityHeaders(next http.Handler) http.Handler {
