@@ -56,6 +56,29 @@ func New() (*Server, error) {
 	return mock, nil
 }
 
+func NewWithAddr(addr string, publicURL string) (*Server, http.Handler, error) {
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mock := &Server{
+		privKey:     privKey,
+		keyID:       "mock-key-1",
+		authCodes:   make(map[string]CodeData),
+		overrideIss: publicURL,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /.well-known/openid-configuration", mock.handleDiscovery)
+	mux.HandleFunc("GET /jwks.json", mock.handleJWKS)
+	mux.HandleFunc("GET /authorize", mock.handleAuthorize)
+	mux.HandleFunc("POST /authorize/submit", mock.handleAuthorizeSubmit)
+	mux.HandleFunc("POST /token", mock.handleToken)
+
+	return mock, mux, nil
+}
+
 func (m *Server) Close() {
 	m.server.Close()
 }
@@ -83,15 +106,15 @@ func (m *Server) AddAuthCode(code string, data CodeData) {
 }
 
 func (m *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
-	iss := m.server.URL
-	if m.overrideIss != "" {
-		iss = m.overrideIss
+	iss := m.overrideIss
+	if iss == "" && m.server != nil {
+		iss = m.server.URL
 	}
 	resp := map[string]any{
 		"issuer":                                iss,
-		"authorization_endpoint":                m.server.URL + "/authorize",
-		"token_endpoint":                        m.server.URL + "/token",
-		"jwks_uri":                              m.server.URL + "/jwks.json",
+		"authorization_endpoint":                iss + "/authorize",
+		"token_endpoint":                        iss + "/token",
+		"jwks_uri":                              iss + "/jwks.json",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
@@ -211,9 +234,9 @@ func (m *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	iss := m.server.URL
-	if m.overrideIss != "" {
-		iss = m.overrideIss
+	iss := m.overrideIss
+	if iss == "" && m.server != nil {
+		iss = m.server.URL
 	}
 	aud := "test-client-id"
 	if m.overrideAud != "" {
